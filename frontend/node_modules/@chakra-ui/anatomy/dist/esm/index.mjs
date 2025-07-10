@@ -1,0 +1,2 @@
+export { anatomy } from './create-anatomy.mjs';
+export { accordionAnatomy, alertAnatomy, avatarAnatomy, breadcrumbAnatomy, buttonAnatomy, cardAnatomy, checkboxAnatomy, circularProgressAnatomy, drawerAnatomy, editableAnatomy, formAnatomy, formErrorAnatomy, inputAnatomy, listAnatomy, menuAnatomy, modalAnatomy, numberInputAnatomy, pinInputAnatomy, popoverAnatomy, progressAnatomy, radioAnatomy, selectAnatomy, sliderAnatomy, statAnatomy, stepperAnatomy, switchAnatomy, tableAnatomy, tabsAnatomy, tagAnatomy } from './components.mjs';

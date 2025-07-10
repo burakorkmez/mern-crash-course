@@ -1,0 +1,14 @@
+'use client';
+'use strict';
+
+var jsxRuntime = require('react/jsx-runtime');
+var table = require('./table.cjs');
+var forwardRef = require('../system/forward-ref.cjs');
+var factory = require('../system/factory.cjs');
+
+const Thead = forwardRef.forwardRef((props, ref) => {
+  const styles = table.useTableStyles();
+  return /* @__PURE__ */ jsxRuntime.jsx(factory.chakra.thead, { ...props, ref, __css: styles.thead });
+});
+
+exports.Thead = Thead;
