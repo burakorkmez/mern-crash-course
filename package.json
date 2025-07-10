@@ -10,16 +10,16 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/burakorkmez/mern-crash-course.git"
+    "url": "git+https://github.com/vikas9074122983/mean-online-shop.git"
   },
   "type": "module",
   "keywords": [],
   "author": "",
   "license": "ISC",
   "bugs": {
-    "url": "https://github.com/burakorkmez/mern-crash-course/issues"
+    "url": "https://github.com/vikas9074122983/mean-online-shop/issues"
   },
-  "homepage": "https://github.com/burakorkmez/mern-crash-course#readme",
+  "homepage": "https://github.com/vikas9074122983/mean-online-shop#readme",
   "description": "",
   "dependencies": {
     "dotenv": "^16.6.1",
