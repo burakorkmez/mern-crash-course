@@ -1,0 +1,409 @@
+'use client';
+'use strict';
+
+var hooks = require('@chakra-ui/hooks');
+var utils = require('@chakra-ui/utils');
+var React = require('react');
+var sliderUtils = require('./slider-utils.cjs');
+
+function useRangeSlider(props) {
+  const {
+    min = 0,
+    max = 100,
+    onChange,
+    value: valueProp,
+    defaultValue,
+    isReversed: isReversedProp,
+    direction = "ltr",
+    orientation = "horizontal",
+    id: idProp,
+    isDisabled,
+    isReadOnly,
+    onChangeStart: onChangeStartProp,
+    onChangeEnd: onChangeEndProp,
+    step = 1,
+    getAriaValueText: getAriaValueTextProp,
+    "aria-valuetext": ariaValueText,
+    "aria-label": ariaLabel,
+    "aria-labelledby": ariaLabelledBy,
+    name,
+    focusThumbOnChange = true,
+    minStepsBetweenThumbs = 0,
+    ...htmlProps
+  } = props;
+  const onChangeStart = hooks.useCallbackRef(onChangeStartProp);
+  const onChangeEnd = hooks.useCallbackRef(onChangeEndProp);
+  const getAriaValueText = hooks.useCallbackRef(getAriaValueTextProp);
+  const isReversed = sliderUtils.getIsReversed({
+    isReversed: isReversedProp,
+    direction,
+    orientation
+  });
+  const [valueState, setValue] = hooks.useControllableState({
+    value: valueProp,
+    defaultValue: defaultValue ?? [25, 75],
+    onChange
+  });
+  if (!Array.isArray(valueState)) {
+    throw new TypeError(
+      `[range-slider] You passed an invalid value for \`value\` or \`defaultValue\`, expected \`Array\` but got \`${typeof valueState}\``
+    );
+  }
+  const [isDragging, setDragging] = React.useState(false);
+  const [isFocused, setFocused] = React.useState(false);
+  const [activeIndex, setActiveIndex] = React.useState(-1);
+  const isInteractive = !(isDisabled || isReadOnly);
+  const initialValue = React.useRef(valueState);
+  const value = valueState.map((val) => utils.clampValue(val, min, max));
+  const spacing = minStepsBetweenThumbs * step;
+  const valueBounds = getValueBounds(value, min, max, spacing);
+  const stateRef = React.useRef({
+    eventSource: null,
+    value: [],
+    valueBounds: []
+  });
+  stateRef.current.value = value;
+  stateRef.current.valueBounds = valueBounds;
+  const reversedValue = value.map((val) => max - val + min);
+  const thumbValues = isReversed ? reversedValue : value;
+  const thumbPercents = thumbValues.map((val) => utils.valueToPercent(val, min, max));
+  const isVertical = orientation === "vertical";
+  const trackRef = React.useRef(null);
+  const rootRef = React.useRef(null);
+  const reactId = React.useId();
+  const uuid = idProp ?? reactId;
+  const ids = sliderUtils.getIds(uuid);
+  const getValueFromPointer = React.useCallback(
+    (event) => {
+      if (!trackRef.current)
+        return;
+      stateRef.current.eventSource = "pointer";
+      const rect = trackRef.current.getBoundingClientRect();
+      const { clientX, clientY } = event.touches?.[0] ?? event;
+      const diff = isVertical ? rect.bottom - clientY : clientX - rect.left;
+      const length = isVertical ? rect.height : rect.width;
+      let percent = diff / length;
+      if (isReversed)
+        percent = 1 - percent;
+      return utils.percentToValue(percent, min, max);
+    },
+    [isVertical, isReversed, max, min]
+  );
+  const tenSteps = (max - min) / 10;
+  const oneStep = step || (max - min) / 100;
+  const actions = React.useMemo(
+    () => ({
+      setValueAtIndex(index, val) {
+        if (!isInteractive)
+          return;
+        const bounds = stateRef.current.valueBounds[index];
+        val = parseFloat(utils.roundValueToStep(val, bounds.min, oneStep));
+        val = utils.clampValue(val, bounds.min, bounds.max);
+        const next = [...stateRef.current.value];
+        next[index] = val;
+        setValue(next);
+      },
+      setActiveIndex,
+      stepUp(index, step2 = oneStep) {
+        const valueAtIndex = stateRef.current.value[index];
+        const next = isReversed ? valueAtIndex - step2 : valueAtIndex + step2;
+        actions.setValueAtIndex(index, next);
+      },
+      stepDown(index, step2 = oneStep) {
+        const valueAtIndex = stateRef.current.value[index];
+        const next = isReversed ? valueAtIndex + step2 : valueAtIndex - step2;
+        actions.setValueAtIndex(index, next);
+      },
+      reset() {
+        setValue(initialValue.current);
+      }
+    }),
+    [oneStep, isReversed, setValue, isInteractive]
+  );
+  const onKeyDown = React.useCallback(
+    (event) => {
+      const eventKey = event.key;
+      const keyMap = {
+        ArrowRight: () => actions.stepUp(activeIndex),
+        ArrowUp: () => actions.stepUp(activeIndex),
+        ArrowLeft: () => actions.stepDown(activeIndex),
+        ArrowDown: () => actions.stepDown(activeIndex),
+        PageUp: () => actions.stepUp(activeIndex, tenSteps),
+        PageDown: () => actions.stepDown(activeIndex, tenSteps),
+        Home: () => {
+          const { min: value2 } = valueBounds[activeIndex];
+          actions.setValueAtIndex(activeIndex, value2);
+        },
+        End: () => {
+          const { max: value2 } = valueBounds[activeIndex];
+          actions.setValueAtIndex(activeIndex, value2);
+        }
+      };
+      const action = keyMap[eventKey];
+      if (action) {
+        event.preventDefault();
+        event.stopPropagation();
+        action(event);
+        stateRef.current.eventSource = "keyboard";
+      }
+    },
+    [actions, activeIndex, tenSteps, valueBounds]
+  );
+  const { getThumbStyle, rootStyle, trackStyle, innerTrackStyle } = React.useMemo(
+    () => sliderUtils.getStyles({
+      isReversed,
+      orientation,
+      thumbPercents
+    }),
+    [isReversed, orientation, thumbPercents]
+  );
+  const focusThumb = React.useCallback(
+    (index) => {
+      const idx = index ?? activeIndex;
+      if (idx !== -1 && focusThumbOnChange) {
+        const id = ids.getThumb(idx);
+        const thumb = rootRef.current?.ownerDocument.getElementById(id);
+        if (thumb) {
+          setTimeout(() => thumb.focus());
+        }
+      }
+    },
+    [focusThumbOnChange, activeIndex, ids]
+  );
+  hooks.useUpdateEffect(() => {
+    if (stateRef.current.eventSource === "keyboard") {
+      onChangeEnd?.(stateRef.current.value);
+    }
+  }, [value, onChangeEnd]);
+  const onPanSessionStart = (event) => {
+    const pointValue = getValueFromPointer(event) || 0;
+    const distances = stateRef.current.value.map(
+      (val) => Math.abs(val - pointValue)
+    );
+    const closest = Math.min(...distances);
+    let index = distances.indexOf(closest);
+    const thumbsAtPosition = distances.filter(
+      (distance) => distance === closest
+    );
+    const isThumbStacked = thumbsAtPosition.length > 1;
+    if (isThumbStacked && pointValue > stateRef.current.value[index]) {
+      index = index + thumbsAtPosition.length - 1;
+    }
+    setActiveIndex(index);
+    actions.setValueAtIndex(index, pointValue);
+    focusThumb(index);
+  };
+  const onPan = (event) => {
+    if (activeIndex == -1)
+      return;
+    const pointValue = getValueFromPointer(event) || 0;
+    setActiveIndex(activeIndex);
+    actions.setValueAtIndex(activeIndex, pointValue);
+    focusThumb(activeIndex);
+  };
+  hooks.usePanEvent(rootRef, {
+    onPanSessionStart(event) {
+      if (!isInteractive)
+        return;
+      setDragging(true);
+      onPanSessionStart(event);
+      onChangeStart?.(stateRef.current.value);
+    },
+    onPanSessionEnd() {
+      if (!isInteractive)
+        return;
+      setDragging(false);
+      onChangeEnd?.(stateRef.current.value);
+    },
+    onPan(event) {
+      if (!isInteractive)
+        return;
+      onPan(event);
+    }
+  });
+  const getRootProps = React.useCallback(
+    (props2 = {}, ref = null) => {
+      return {
+        ...props2,
+        ...htmlProps,
+        id: ids.root,
+        ref: hooks.mergeRefs(ref, rootRef),
+        tabIndex: -1,
+        "aria-disabled": utils.ariaAttr(isDisabled),
+        "data-focused": utils.dataAttr(isFocused),
+        style: { ...props2.style, ...rootStyle }
+      };
+    },
+    [htmlProps, isDisabled, isFocused, rootStyle, ids]
+  );
+  const getTrackProps = React.useCallback(
+    (props2 = {}, ref = null) => {
+      return {
+        ...props2,
+        ref: hooks.mergeRefs(ref, trackRef),
+        id: ids.track,
+        "data-disabled": utils.dataAttr(isDisabled),
+        style: { ...props2.style, ...trackStyle }
+      };
+    },
+    [isDisabled, trackStyle, ids]
+  );
+  const getInnerTrackProps = React.useCallback(
+    (props2 = {}, ref = null) => {
+      return {
+        ...props2,
+        ref,
+        id: ids.innerTrack,
+        style: {
+          ...props2.style,
+          ...innerTrackStyle
+        }
+      };
+    },
+    [innerTrackStyle, ids]
+  );
+  const getThumbProps = React.useCallback(
+    (props2, ref = null) => {
+      const { index, ...rest } = props2;
+      const valueAtIndex = value[index];
+      if (valueAtIndex == null) {
+        throw new TypeError(
+          `[range-slider > thumb] Cannot find value at index \`${index}\`. The \`value\` or \`defaultValue\` length is : ${value.length}`
+        );
+      }
+      const bounds = valueBounds[index];
+      return {
+        ...rest,
+        ref,
+        role: "slider",
+        tabIndex: isInteractive ? 0 : void 0,
+        id: ids.getThumb(index),
+        "data-active": utils.dataAttr(isDragging && activeIndex === index),
+        "aria-valuetext": getAriaValueText?.(valueAtIndex) ?? ariaValueText?.[index],
+        "aria-valuemin": bounds.min,
+        "aria-valuemax": bounds.max,
+        "aria-valuenow": valueAtIndex,
+        "aria-orientation": orientation,
+        "aria-disabled": utils.ariaAttr(isDisabled),
+        "aria-readonly": utils.ariaAttr(isReadOnly),
+        "aria-label": ariaLabel?.[index],
+        "aria-labelledby": ariaLabel?.[index] ? void 0 : ariaLabelledBy?.[index],
+        style: { ...props2.style, ...getThumbStyle(index) },
+        onKeyDown: utils.callAllHandlers(props2.onKeyDown, onKeyDown),
+        onFocus: utils.callAllHandlers(props2.onFocus, () => {
+          setFocused(true);
+          setActiveIndex(index);
+        }),
+        onBlur: utils.callAllHandlers(props2.onBlur, () => {
+          setFocused(false);
+          setActiveIndex(-1);
+        })
+      };
+    },
+    [
+      ids,
+      value,
+      valueBounds,
+      isInteractive,
+      isDragging,
+      activeIndex,
+      getAriaValueText,
+      ariaValueText,
+      orientation,
+      isDisabled,
+      isReadOnly,
+      ariaLabel,
+      ariaLabelledBy,
+      getThumbStyle,
+      onKeyDown,
+      setFocused
+    ]
+  );
+  const getOutputProps = React.useCallback(
+    (props2 = {}, ref = null) => {
+      return {
+        ...props2,
+        ref,
+        id: ids.output,
+        htmlFor: value.map((v, i) => ids.getThumb(i)).join(" "),
+        "aria-live": "off"
+      };
+    },
+    [ids, value]
+  );
+  const getMarkerProps = React.useCallback(
+    (props2, ref = null) => {
+      const { value: v, ...rest } = props2;
+      const isInRange = !(v < min || v > max);
+      const isHighlighted = v >= value[0] && v <= value[value.length - 1];
+      let percent = utils.valueToPercent(v, min, max);
+      percent = isReversed ? 100 - percent : percent;
+      const markerStyle = {
+        position: "absolute",
+        pointerEvents: "none",
+        ...sliderUtils.orient({
+          orientation,
+          vertical: { bottom: `${percent}%` },
+          horizontal: { left: `${percent}%` }
+        })
+      };
+      return {
+        ...rest,
+        ref,
+        id: ids.getMarker(props2.value),
+        role: "presentation",
+        "aria-hidden": true,
+        "data-disabled": utils.dataAttr(isDisabled),
+        "data-invalid": utils.dataAttr(!isInRange),
+        "data-highlighted": utils.dataAttr(isHighlighted),
+        style: {
+          ...props2.style,
+          ...markerStyle
+        }
+      };
+    },
+    [isDisabled, isReversed, max, min, orientation, value, ids]
+  );
+  const getInputProps = React.useCallback(
+    (props2, ref = null) => {
+      const { index, ...rest } = props2;
+      return {
+        ...rest,
+        ref,
+        id: ids.getInput(index),
+        type: "hidden",
+        value: value[index],
+        name: Array.isArray(name) ? name[index] : `${name}-${index}`
+      };
+    },
+    [name, value, ids]
+  );
+  const state = {
+    value,
+    isFocused,
+    isDragging,
+    getThumbPercent: (index) => thumbPercents[index],
+    getThumbMinValue: (index) => valueBounds[index].min,
+    getThumbMaxValue: (index) => valueBounds[index].max
+  };
+  return {
+    state,
+    actions,
+    getRootProps,
+    getTrackProps,
+    getInnerTrackProps,
+    getThumbProps,
+    getMarkerProps,
+    getInputProps,
+    getOutputProps
+  };
+}
+function getValueBounds(arr, min, max, spacing) {
+  return arr.map((v, i) => {
+    const _min = i === 0 ? min : arr[i - 1] + spacing;
+    const _max = i === arr.length - 1 ? max : arr[i + 1] - spacing;
+    return { min: _min, max: _max };
+  });
+}
+
+exports.useRangeSlider = useRangeSlider;
